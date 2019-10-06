@@ -1,0 +1,14 @@
+{application, ssh_maint_ep
+,[{description, "SSH maintenance end point"}
+ ,{vsn, "0.1.0"}
+ ,{registered, [ssh_maint_ep_sup, ssh_maint_ep]}
+ ,{mod, {ssh_maint_ep_app, []}}
+ ,{applications, [kernel, stdlib, ssh]}
+ ,{env,[ {port, 15522}
+       , {opts, []}
+       , {server_key_pem, "/tmp/ssh_maint_ep/server_key.pem"}
+       , {auth_db, "/tmp/ssh_maint_ep/auth_db.dets"}
+       , {trust_first_user_key, false}]}
+ ,{modules, [ssh_maint_ep_app, ssh_maint_ep_sup, ssh_main_ep]}
+ ,{links, []}
+ ]}.
