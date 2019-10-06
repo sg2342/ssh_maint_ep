@@ -1,6 +1,6 @@
 {application, ssh_maint_ep
 ,[{description, "SSH maintenance end point"}
- ,{vsn, "0.1.0"}
+ ,{vsn, "0.1.1"}
  ,{registered, [ssh_maint_ep_sup, ssh_maint_ep]}
  ,{mod, {ssh_maint_ep_app, []}}
  ,{applications, [kernel, stdlib, ssh]}

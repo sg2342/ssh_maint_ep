@@ -3,12 +3,15 @@
 -behaviour(gen_statem).
 
 -export([host_key/2, is_auth_key/3]).
--export([start_link/0, auth_add/2, auth_del/1, auth_del/2]).
+-export([start_link/0, auth_add/2, auth_del/1, auth_del/2, fail_event/3
+	,connect_event/3]).
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 -ignore_xref({start_link, 0}).
 -ignore_xref({auth_add, 2}).
 -ignore_xref({auth_del, 1}).
 -ignore_xref({auth_del, 2}).
+-ignore_xref({fail_event, 3}).
+-ignore_xref({connect_event, 3}).
 
 -define(SERVER, ?MODULE).
 -define(DTAB, ?SERVER).
@@ -35,6 +38,20 @@ is_auth_key(PublicUserKey, User, DaemonOptions) ->
     gen_statem:call(?SERVER, {is_auth_key, PublicUserKey, User, DaemonOptions}).
 
 
+fail_event(User, PeerAddr, Reason) ->
+    error_logger:error_report([?SERVER
+			      ,{failed, #{user => User
+					 ,from => PeerAddr
+					 ,reason => Reason}}]).
+
+
+connect_event(User, PeerAddr, Method) ->
+    error_logger:info_report([?SERVER
+			     ,{connect, #{user => User
+					 ,from => PeerAddr
+					 ,method => Method}}]).
+
+
 callback_mode() -> handle_event_function.
 
 
@@ -48,7 +65,9 @@ handle_event(timeout, _, undefined, D0) ->
     HostKey = load_or_generate_sshd_key(),
     {ok, Port} = application:get_env(port),
     {ok, Opts0} = application:get_env(opts),
-    Opts = [{key_cb, {?SERVER, [HostKey]}}|Opts0],
+    Opts = [{key_cb, {?SERVER, [HostKey]}}
+	   ,{failfun, fun ?MODULE:fail_event/3}
+	   ,{connectfun, fun ?MODULE:connect_event/3}|Opts0],
     {ok, Sshd} = ssh:daemon(Port, Opts),
     {next_state, daemon, D#{sshd => Sshd}};
 handle_event({call, From}, {is_auth_key, PubUserKey, User, _O}, daemon,

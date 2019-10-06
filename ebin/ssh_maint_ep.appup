@@ -1,0 +1,5 @@
+%% -*- erlang -*-
+{"0.1.1",
+ [{<<".*">>,[{restart_application, ssh_maint_ep}]}],
+ [{<<".*">>,[{restart_application, ssh_maint_ep}]}]
+}.
