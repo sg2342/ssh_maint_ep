@@ -63,13 +63,14 @@ init([]) ->
 handle_event(timeout, _, undefined, D0) ->
     D = init_auth_key_table(D0),
     HostKey = load_or_generate_sshd_key(),
-    {ok, Port} = application:get_env(port),
-    {ok, Opts0} = application:get_env(opts),
+    {ok, L0} = application:get_env(listen),
     Opts = [{key_cb, {?SERVER, [HostKey]}}
 	   ,{failfun, fun ?MODULE:fail_event/3}
-	   ,{connectfun, fun ?MODULE:connect_event/3}|Opts0],
-    {ok, Sshd} = ssh:daemon(Port, Opts),
-    {next_state, daemon, D#{sshd => Sshd}};
+	   ,{connectfun, fun ?MODULE:connect_event/3}],
+    L = lists:map(fun({Port, Opts0}) ->
+			  {ok, Sshd} = ssh:daemon(Port, Opts ++ Opts0), Sshd end,
+		  L0),
+    {next_state, daemon, D#{sshd => L}};
 handle_event({call, From}, {is_auth_key, PubUserKey, User, _O}, daemon,
 	     #{auth_empty := true} = D) ->
     {ok, Maybe} = application:get_env(trust_first_user_key),
@@ -100,10 +101,12 @@ auth_db({del, User, Key}) ->  dets:delete_object(?DTAB, {User, Key});
 auth_db({del, User}) ->  dets:delete(?DTAB, User).
 
 
-terminate(_Reason, _, #{sshd := Sshd}) ->
+terminate(_Reason, _, #{sshd := L}) ->
     dets:close(?DTAB),
-    _ = ssh:stop_listener(Sshd),
-    ssh:stop_daemon(Sshd);
+    lists:foreach(
+      fun(Sshd) -> _ = ssh:stop_listener(Sshd),
+		   ssh:stop_daemon(Sshd) end,
+      L);
 terminate(_,_,_) -> dets:close(?DTAB).
 
 
