@@ -3,15 +3,18 @@
 -behaviour(gen_statem).
 
 -export([host_key/2, is_auth_key/3]).
--export([start_link/0, auth_add/2, auth_del/1, auth_del/2, fail_event/3
-	,connect_event/3]).
+-export([start_link/0, auth_add/2, auth_del/1, auth_del/2, auth_dump/0,
+	 fail_event/3 ,connect_event/3]).
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 -ignore_xref({start_link, 0}).
 -ignore_xref({auth_add, 2}).
 -ignore_xref({auth_del, 1}).
 -ignore_xref({auth_del, 2}).
+-ignore_xref({auth_dump, 0}).
 -ignore_xref({fail_event, 3}).
 -ignore_xref({connect_event, 3}).
+
+-include_lib("kernel/include/logger.hrl").
 
 -define(SERVER, ?MODULE).
 -define(DTAB, ?SERVER).
@@ -28,6 +31,9 @@ auth_del(User, Key) -> gen_statem:call(?SERVER, {auth, {del, User, Key}}).
 auth_del(User) -> gen_statem:call(?SERVER, {auth, {del, User}}).
 
 
+auth_dump() -> gen_statem:call(?SERVER, {auth, dump}).
+
+
 host_key(Algorithm, [{key_cb_private, [Key]}|_])
   when Algorithm == 'ssh-rsa' ; Algorithm == 'rsa-sha2-256' ;
        Algorithm == 'rsa-sha2-384' ; Algorithm == 'rsa-sha2-512' -> {ok, Key};
@@ -39,17 +45,17 @@ is_auth_key(PublicUserKey, User, DaemonOptions) ->
 
 
 fail_event(User, PeerAddr, Reason) ->
-    error_logger:error_report([?SERVER
-			      ,{failed, #{user => User
-					 ,from => PeerAddr
-					 ,reason => Reason}}]).
+    ?LOG_ERROR(#{ ?SERVER => failed
+		, user => User
+		, from => PeerAddr
+		, reason => Reason}).
 
 
 connect_event(User, PeerAddr, Method) ->
-    error_logger:info_report([?SERVER
-			     ,{connect, #{user => User
-					 ,from => PeerAddr
-					 ,method => Method}}]).
+    ?LOG_INFO(#{ ?SERVER => connect
+	       , user => User
+	       , from => PeerAddr
+	       , method => Method}).
 
 
 callback_mode() -> handle_event_function.
@@ -85,17 +91,18 @@ handle_event({call, From}, {auth, A}, _State, D) ->
 
 
 handle_empty_auth_db(true, From, PubUserKey, User, D) ->
-    error_logger:info_report([?SERVER, {trust_first_user_key, true}
-			     , {user, User}
-			     , "empty auth db, trust this key"]),
+    ?LOG_NOTICE(#{ ?SERVER => "empty auth db, trust this key"
+		 , trust_first_user_key => true
+		 , user => User}),
     dets:insert(?DTAB, {User, PubUserKey}),
     {keep_state, D#{auth_empty => false}, [{reply, From, true}]};
 handle_empty_auth_db(_, From, _PubUserKey, _User, _D) ->
-    error_logger:info_report([?SERVER, "empty auth db, try application:set_env"
-			      "(ssh_maint_ep, trust_first_user_key, true)."]),
+    ?LOG_NOTICE(#{ ?SERVER => "empty auth db, try application:set_env"
+		   "(ssh_maint_ep, trust_first_user_key, true)."}),
     {keep_state_and_data, [{reply, From, false}]}.
 
 
+auth_db(dump) -> {ok, dets:traverse(?DTAB, fun(V) -> {continue, V} end)};
 auth_db({add, User, Key}) -> dets:insert(?DTAB, {User, Key});
 auth_db({del, User, Key}) ->  dets:delete_object(?DTAB, {User, Key});
 auth_db({del, User}) ->  dets:delete(?DTAB, User).
@@ -128,7 +135,7 @@ load_or_generate_sshd_key() ->
     load_or_generate_sshd_key(MaybeOk, HostKeyFile).
 
 load_or_generate_sshd_key({error, enoent}, HostKeyFile) ->
-    error_logger:info_report([?SERVER, "SSH host key not found: generate"]),
+    ?LOG_NOTICE(#{ ?SERVER => "SSH host key not found: generate" }),
     ok = filelib:ensure_dir(HostKeyFile),
     Key = public_key:generate_key({rsa, 4096, 65537}),
     {ok, DERKey} = 'OTP-PUB-KEY':encode('RSAPrivateKey', Key),
