@@ -13,7 +13,7 @@ Application Environment
 ~~~~
 
 listen: port numbers and ssh daemon options.
-defaults to `[{15522, [inet]}, {15522, [inet6]}]}`.
+defaults to `[{15522, []}, {15522, [inet6, {profile, v6}]}]}`.
 
 server_key_pem : location of SSH server key PEM file; generated if not present.
 defaults is  `"/tmp/ssh_maint_ep/server_key.pem"`.
