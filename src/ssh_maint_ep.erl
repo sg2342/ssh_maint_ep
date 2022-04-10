@@ -20,18 +20,40 @@
 -define(SERVER, ?MODULE).
 -define(DTAB, ?SERVER).
 
+-type user() :: nonempty_string().
+-type curveOid() ::?'id-Ed25519' | ?secp256r1 | ?secp384r1 | ?secp521r1.
+-type public_user_key() :: #'RSAPublicKey'{} |
+			   {#'ECPoint'{ }, {namedCurve, curveOid()}}.
+
+
 start_link() -> gen_statem:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+-spec auth_add(user(), public_user_key() | base64:base64_string()) ->
+	  ok | {error, term()}.
+auth_add(User = [_|_], PublicUserKey) ->
+    auth_add1(User, decPKInput(PublicUserKey));
+auth_add(_,_) -> {error, invalid_input}.
 
-auth_add(User, Key) -> gen_statem:call(?SERVER, {auth, {add, User, Key}}).
+auth_add1(_, invalid) -> {error, invalid_input};
+auth_add1(U, K) -> gen_statem:call(?SERVER, {auth, {add, U, K}}).
 
 
-auth_del(User, Key) -> gen_statem:call(?SERVER, {auth, {del, User, Key}}).
+-spec auth_del(user(), public_user_key() | base64:base64_string()) ->
+	  ok | {error, term()}.
+auth_del(User = [_|_], PublicUserKey) ->
+    auth_del1(User, decPKInput(PublicUserKey));
+auth_del(_,_) -> {error, invalid_input}.
+
+auth_del1(_, invalid) -> {error, invalid_input};
+auth_del1(U, K) -> gen_statem:call(?SERVER, {auth, {del, U, K}}).
 
 
-auth_del(User) -> gen_statem:call(?SERVER, {auth, {del, User}}).
+-spec auth_del(user()) -> ok | {error, term()}.
+auth_del(User = [_|_]) -> gen_statem:call(?SERVER, {auth, {del, User}});
+auth_del(_) -> {error, invalid_input}.
 
 
+-spec auth_dump() -> {ok, [{user(), public_user_key()}]} | {error, term()}.
 auth_dump() -> gen_statem:call(?SERVER, {auth, dump}).
 
 
@@ -167,3 +189,45 @@ load_or_generate_sshd_key({ok, Bin}, _HostKeyFile) ->
 		 ({'RSAPrivateKey', _, not_encrypted}) -> true;
 		 (_) -> false end, public_key:pem_decode(Bin)),
     public_key:pem_entry_decode(K).
+
+
+-spec decPKInput(public_user_key() | binary()) -> public_user_key() | invalid.
+decPKInput(#'RSAPublicKey'{} = Key) -> Key;
+decPKInput({#'ECPoint'{}, {namedCurve, C}} = Key)
+  when C == ?'id-Ed25519'; C == ?secp256r1 ; C == ?secp384r1 ; C == ?secp521r1 ->
+    Key;
+decPKInput(B64Key = [_|_]) -> decB64Key(list_to_binary(B64Key));
+decPKInput(B64Key) when is_binary(B64Key) -> decB64Key(B64Key);
+decPKInput(_) -> invalid.
+
+
+-spec decB64Key(binary()) -> public_user_key() | invalid.
+decB64Key(<<"ssh-ed25519 ", R/binary>>) -> decB64Key(R);
+decB64Key(<<"ssh-rsa ", R/binary>>) -> decB64Key(R);
+decB64Key(<<"ecdsa-sha2-nistp256 ", R/binary>>) -> decB64Key(R);
+decB64Key(<<"ecdsa-sha2-nistp384 ", R/binary>>) -> decB64Key(R);
+decB64Key(<<"ecdsa-sha2-nistp521 ", R/binary>>) -> decB64Key(R);
+decB64Key(Bin0) ->
+    [Bin|_] = binary:split(Bin0, <<" ">>, [trim_all, global]),
+    try decKey(base64:decode(Bin)) catch _:_ -> invalid end.
+
+decKey(<< SigKInfoLen:32, SigKInfo:SigKInfoLen/binary
+	, ELen:32, E:ELen/big-signed-integer-unit:8
+	, NLen:32, N:NLen/big-signed-integer-unit:8 >>)
+  when SigKInfo == <<"ssh-rsa">> ->
+    #'RSAPublicKey'{ modulus = N, publicExponent = E};
+decKey(<< SigKInfoLen:32, SigKInfo:SigKInfoLen/binary
+	, PKLen:32, PK:PKLen/binary >>)
+  when SigKInfo == <<"ssh-ed25519">> ->
+    { #'ECPoint'{ point = PK }, {namedCurve, ?'id-Ed25519'} };
+decKey(<< SigKInfoLen:32, SigKInfo:SigKInfoLen/binary
+	, CurveLen:32, Curve:CurveLen/binary
+	, PKLen:32, PK:PKLen/binary >>)
+  when SigKInfo == <<"ecdsa-sha2-nistp256">> ;
+       SigKInfo == <<"ecdsa-sha2-nistp384">> ;
+       SigKInfo == <<"ecdsa-sha2-nistp521">> ->
+    {#'ECPoint'{ point = PK }, {namedCurve, curvename2oid(Curve)} }.
+
+curvename2oid(<<"nistp256">>) -> ?secp256r1;
+curvename2oid(<<"nistp384">>) -> ?secp384r1;
+curvename2oid(<<"nistp521">>) -> ?secp521r1.
