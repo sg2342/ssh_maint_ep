@@ -48,6 +48,9 @@ host_key(Algorithm,[{key_cb_private,
 host_key(_Algorithm, _Opts) -> {error, no}.
 
 
+is_auth_key({ed_pub, ed25519, PK}, User, DaemonOptions) ->
+    PublicUserKey = {#'ECPoint'{ point = PK }, {namedCurve, ?'id-Ed25519'}},
+    is_auth_key(PublicUserKey, User, DaemonOptions);
 is_auth_key(PublicUserKey, User, DaemonOptions) ->
     gen_statem:call(?SERVER, {is_auth_key, PublicUserKey, User, DaemonOptions}).
 
@@ -133,8 +136,14 @@ init_auth_key_table(D) ->
 					,{type, duplicate_bag}
 					,{access, read_write}
 					,{auto_save, 1000}]),
+    dets:traverse(?DTAB, fun convert_legacy_ed25519/1),
     Empty = (dets:first(?DTAB) == '$end_of_table'),
     D#{auth_empty => Empty}.
+
+
+convert_legacy_ed25519({User, {ed_pub, ed25519, PK}}) ->
+    {continue, {User, {#'ECPoint'{ point = PK }, {namedCurve, ?'id-Ed25519'}}}};
+convert_legacy_ed25519(_) -> continue.
 
 
 load_or_generate_sshd_key() ->
