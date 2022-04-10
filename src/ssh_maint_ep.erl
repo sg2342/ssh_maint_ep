@@ -15,6 +15,7 @@
 -ignore_xref({connect_event, 3}).
 
 -include_lib("kernel/include/logger.hrl").
+-include_lib("public_key/include/public_key.hrl").
 
 -define(SERVER, ?MODULE).
 -define(DTAB, ?SERVER).
@@ -34,9 +35,16 @@ auth_del(User) -> gen_statem:call(?SERVER, {auth, {del, User}}).
 auth_dump() -> gen_statem:call(?SERVER, {auth, dump}).
 
 
-host_key(Algorithm, [{key_cb_private, [Key]}|_])
+host_key(Algorithm, [{key_cb_private, [#'RSAPrivateKey'{} = Key]}|_])
   when Algorithm == 'ssh-rsa' ; Algorithm == 'rsa-sha2-256' ;
        Algorithm == 'rsa-sha2-384' ; Algorithm == 'rsa-sha2-512' -> {ok, Key};
+host_key(Algorithm,[{key_cb_private,
+		     [#'ECPrivateKey'{parameters = {namedCurve, C}} = Key]}|_])
+  when   ((Algorithm == 'ssh-ed25519') and (C == ?'id-Ed25519')) 
+       ; ((Algorithm == 'ecdsa-sha2-nistp256') and (C == ?secp256r1))
+       ; ((Algorithm == 'ecdsa-sha2-nistp384') and (C == ?secp384r1))
+       ; ((Algorithm == 'ecdsa-sha2-nistp521') and (C == ?secp521r1)) ->
+    {ok, Key};
 host_key(_Algorithm, _Opts) -> {error, no}.
 
 
@@ -137,14 +145,16 @@ load_or_generate_sshd_key() ->
 load_or_generate_sshd_key({error, enoent}, HostKeyFile) ->
     ?LOG_NOTICE(#{ ?SERVER => "SSH host key not found: generate" }),
     ok = filelib:ensure_dir(HostKeyFile),
-    Key = public_key:generate_key({rsa, 4096, 65537}),
-    {ok, DERKey} = 'OTP-PUB-KEY':encode('RSAPrivateKey', Key),
-    BIN = public_key:pem_encode([{'RSAPrivateKey',
+    Key = public_key:generate_key({namedCurve, ?'id-Ed25519'}),
+    {ok, DERKey} = 'OTP-PUB-KEY':encode('ECPrivateKey', Key),
+    BIN = public_key:pem_encode([{'ECPrivateKey',
 				  iolist_to_binary(DERKey),
 				  not_encrypted}]),
     ok = file:write_file(HostKeyFile, BIN),
     Key;
 load_or_generate_sshd_key({ok, Bin}, _HostKeyFile) ->
-    {'RSAPrivateKey', _, not_encrypted} = E =
-	lists:keyfind('RSAPrivateKey', 1, public_key:pem_decode(Bin)),
-    public_key:pem_entry_decode(E).
+    [K|_] = lists:filter(
+	      fun({'ECPrivateKey', _, not_encrypted}) -> true;
+		 ({'RSAPrivateKey', _, not_encrypted}) -> true;
+		 (_) -> false end, public_key:pem_decode(Bin)),
+    public_key:pem_entry_decode(K).
