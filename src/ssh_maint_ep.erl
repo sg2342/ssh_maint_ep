@@ -21,7 +21,8 @@
 -define(DTAB, ?SERVER).
 
 -type user() :: nonempty_string().
--type curveOid() ::?'id-Ed25519' | ?secp256r1 | ?secp384r1 | ?secp521r1.
+-type curveOid() :: ?'id-Ed25519' | ?'id-Ed448' |
+		    ?secp256r1 | ?secp384r1 | ?secp521r1.
 -type public_user_key() :: #'RSAPublicKey'{} |
 			   {#'ECPoint'{ }, {namedCurve, curveOid()}}.
 
@@ -63,6 +64,7 @@ host_key(Algorithm, [{key_cb_private, [#'RSAPrivateKey'{} = Key]}|_])
 host_key(Algorithm,[{key_cb_private,
 		     [#'ECPrivateKey'{parameters = {namedCurve, C}} = Key]}|_])
   when (Algorithm == 'ssh-ed25519'andalso C == ?'id-Ed25519') ;
+       (Algorithm == 'ssh-ed448' andalso C == ?'id-Ed448') ;
        (Algorithm == 'ecdsa-sha2-nistp256' andalso C == ?secp256r1) ;
        (Algorithm == 'ecdsa-sha2-nistp384' andalso C == ?secp384r1) ;
        (Algorithm == 'ecdsa-sha2-nistp521' andalso C == ?secp521r1) ->
@@ -163,6 +165,8 @@ init_auth_key_table(D) ->
     D#{auth_empty => Empty}.
 
 
+convert_legacy_ed25519({User, {ed_pub, ed448, PK}}) ->
+    {continue, {User, {#'ECPoint'{ point = PK }, {namedCurve, ?'id-Ed448'}}}};
 convert_legacy_ed25519({User, {ed_pub, ed25519, PK}}) ->
     {continue, {User, {#'ECPoint'{ point = PK }, {namedCurve, ?'id-Ed25519'}}}};
 convert_legacy_ed25519(_) -> continue.
@@ -221,11 +225,15 @@ decKey(<< SigKInfoLen:32, SigKInfo:SigKInfoLen/binary
   when SigKInfo == <<"ssh-ed25519">> ->
     { #'ECPoint'{ point = PK }, {namedCurve, ?'id-Ed25519'} };
 decKey(<< SigKInfoLen:32, SigKInfo:SigKInfoLen/binary
+	, PKLen:32, PK:PKLen/binary >>)
+  when SigKInfo == <<"ssh-ed448">> ->
+    { #'ECPoint'{ point = PK }, {namedCurve, ?'id-Ed448'} };
+decKey(<< SigKInfoLen:32, SigKInfo:SigKInfoLen/binary
 	, CurveLen:32, Curve:CurveLen/binary
 	, PKLen:32, PK:PKLen/binary >>)
-  when SigKInfo == <<"ecdsa-sha2-nistp256">> ;
-       SigKInfo == <<"ecdsa-sha2-nistp384">> ;
-       SigKInfo == <<"ecdsa-sha2-nistp521">> ->
+  when SigKInfo == <<"ecdsa-sha2-nistp256">> andalso Curve == <<"nistp256">> ;
+       SigKInfo == <<"ecdsa-sha2-nistp384">> andalso Curve == <<"nistp384">> ;
+       SigKInfo == <<"ecdsa-sha2-nistp521">> andalso Curve == <<"nistp521">> ->
     {#'ECPoint'{ point = PK }, {namedCurve, curvename2oid(Curve)} }.
 
 curvename2oid(<<"nistp256">>) -> ?secp256r1;
