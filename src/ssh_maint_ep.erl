@@ -6,6 +6,8 @@
 -export([start_link/0, auth_add/2, auth_del/1, auth_del/2, auth_dump/0,
 	 fail_event/3 ,connect_event/3]).
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
+
+-export([connections/0]).
 -ignore_xref({start_link, 0}).
 -ignore_xref({auth_add, 2}).
 -ignore_xref({auth_del, 1}).
@@ -26,6 +28,7 @@
 -type public_user_key() :: #'RSAPublicKey'{} |
 			   {#'ECPoint'{ }, {namedCurve, curveOid()}}.
 
+connections() -> gen_statem:call(?SERVER, connections).
 
 start_link() -> gen_statem:start_link({local, ?SERVER}, ?MODULE, [], []).
 
@@ -87,10 +90,11 @@ fail_event(User, PeerAddr, Reason) ->
 
 
 connect_event(User, PeerAddr, Method) ->
-    ?LOG_INFO(#{ ?SERVER => connect
-	       , user => User
-	       , from => PeerAddr
-	       , method => Method}).
+    Info = #{ user => User
+	    , from => PeerAddr
+	    , method => Method },
+    gen_statem:cast(?SERVER, {connect, self(), Info}),
+    ?LOG_INFO(Info#{ ?SERVER => connect}).
 
 
 callback_mode() -> handle_event_function.
@@ -98,7 +102,7 @@ callback_mode() -> handle_event_function.
 
 init([]) ->
     _ = erlang:process_flag(trap_exit, true),
-    {ok, undefined, #{}, 0}.
+    {ok, undefined, #{connections => []}, 0}.
 
 
 handle_event(timeout, _, undefined, D0) ->
@@ -112,6 +116,23 @@ handle_event(timeout, _, undefined, D0) ->
 			  {ok, Sshd} = ssh:daemon(Port, Opts ++ Opts0), Sshd end,
 		  L0),
     {next_state, daemon, D#{sshd => L}};
+
+handle_event({call, From}, connections, daemon, #{connections := C0}) ->
+    C = [{Pid, Info} || {_Ref, Pid, Info} <- C0],
+    {keep_state_and_data, [{reply, From, {ok, C}}]};
+handle_event(cast, {connect, Pid, Info}, daemon, #{connections := C0} = D) ->
+    Ref = erlang:monitor(process, Pid),
+    {keep_state, D#{connections => [{Ref, Pid, Info}|C0]}};
+handle_event(info, {'DOWN', Ref, process, Pid, State}, daemon,
+	     #{connections := C0} = D) ->
+    C = case lists:keytake(Ref,1,C0) of
+	    false -> C0;
+	    {value, {Ref, Pid, Info}, C1} ->
+		?LOG_INFO(Info#{ ?SERVER => disconnect
+			       , state => State }),
+		C1 end,
+    {keep_state, D#{connections => C}};
+
 handle_event({call, From}, {is_auth_key, PubUserKey, User, _O}, daemon,
 	     #{auth_empty := true} = D) ->
     {ok, Maybe} = application:get_env(trust_first_user_key),
@@ -119,6 +140,7 @@ handle_event({call, From}, {is_auth_key, PubUserKey, User, _O}, daemon,
 handle_event({call, From}, {is_auth_key, PubUserKey, User, _O}, daemon, _D) ->
     R = lists:keymember(PubUserKey, 2, dets:lookup(?DTAB, User)),
     {keep_state_and_data, [{reply, From, R}]};
+
 handle_event({call, From}, {auth, A}, _State, D) ->
     R = auth_db(A),
     Empty = (dets:first(?DTAB) == '$end_of_table'),
