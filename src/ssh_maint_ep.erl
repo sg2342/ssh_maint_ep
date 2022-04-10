@@ -62,10 +62,10 @@ host_key(Algorithm, [{key_cb_private, [#'RSAPrivateKey'{} = Key]}|_])
        Algorithm == 'rsa-sha2-384' ; Algorithm == 'rsa-sha2-512' -> {ok, Key};
 host_key(Algorithm,[{key_cb_private,
 		     [#'ECPrivateKey'{parameters = {namedCurve, C}} = Key]}|_])
-  when   ((Algorithm == 'ssh-ed25519') and (C == ?'id-Ed25519')) 
-       ; ((Algorithm == 'ecdsa-sha2-nistp256') and (C == ?secp256r1))
-       ; ((Algorithm == 'ecdsa-sha2-nistp384') and (C == ?secp384r1))
-       ; ((Algorithm == 'ecdsa-sha2-nistp521') and (C == ?secp521r1)) ->
+  when (Algorithm == 'ssh-ed25519'andalso C == ?'id-Ed25519') ;
+       (Algorithm == 'ecdsa-sha2-nistp256' andalso C == ?secp256r1) ;
+       (Algorithm == 'ecdsa-sha2-nistp384' andalso C == ?secp384r1) ;
+       (Algorithm == 'ecdsa-sha2-nistp521' andalso C == ?secp521r1) ->
     {ok, Key};
 host_key(_Algorithm, _Opts) -> {error, no}.
 
