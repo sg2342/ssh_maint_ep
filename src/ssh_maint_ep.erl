@@ -21,6 +21,7 @@
 -ignore_xref({auth_dump, 0}).
 -ignore_xref({fail_event, 3}).
 -ignore_xref({connect_event, 3}).
+-ignore_xref({connections, 0}).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("public_key/include/public_key.hrl").
