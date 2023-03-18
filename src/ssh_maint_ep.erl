@@ -151,7 +151,7 @@ handle_empty_auth_db(true, From, PubUserKey, User, D) ->
     ?LOG_NOTICE(#{ ?SERVER => "empty auth db, trust this key"
 		 , trust_first_user_key => true
 		 , user => User}),
-    dets:insert(?DTAB, {User, PubUserKey}),
+    ok = dets:insert(?DTAB, {User, PubUserKey}),
     {keep_state, D#{auth_empty => false}, [{reply, From, true}]};
 handle_empty_auth_db(_, From, _PubUserKey, _User, _D) ->
     ?LOG_NOTICE(#{ ?SERVER => "empty auth db, try application:set_env"
@@ -166,7 +166,7 @@ auth_db({del, User}) ->  dets:delete(?DTAB, User).
 
 
 terminate(_Reason, _, #{sshd := L}) ->
-    dets:close(?DTAB),
+    ok = dets:close(?DTAB),
     lists:foreach(
       fun(Sshd) -> _ = ssh:stop_listener(Sshd),
 		   ssh:stop_daemon(Sshd) end,
