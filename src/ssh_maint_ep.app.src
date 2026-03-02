@@ -4,7 +4,7 @@
     {vsn, git},
     {registered, [ssh_maint_ep_sup, ssh_maint_ep]},
     {mod, {ssh_maint_ep_app, []}},
-    {applications, [kernel, stdlib, ssh]},
+    {applications, [kernel, stdlib, crypto, public_key, ssh]},
     {env, [
         {listen, [
             {15522, []},
