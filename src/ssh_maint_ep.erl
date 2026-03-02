@@ -30,6 +30,8 @@
 -define(DTAB, ?SERVER).
 
 -type user() :: nonempty_string().
+-type base64_alphabet() :: $A..$Z | $a..$z | $0..$9 | $/ | $- | $_ | $=.
+-type base64_string() :: [base64_alphabet()].
 -type curveOid() ::
     ?'id-Ed25519'
     | ?'id-Ed448'
@@ -44,9 +46,9 @@ connections() -> gen_statem:call(?SERVER, connections).
 
 start_link() -> gen_statem:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec auth_add(user(), public_user_key() | base64:base64_string()) ->
+-spec auth_add(user(), public_user_key() | base64_string()) ->
     ok | {error, term()}.
-auth_add(User = [_ | _], PublicUserKey) ->
+auth_add([_ | _] = User, PublicUserKey) ->
     auth_add1(User, dec_pk_input(PublicUserKey));
 auth_add(_, _) ->
     {error, invalid_input}.
@@ -54,9 +56,9 @@ auth_add(_, _) ->
 auth_add1(_, invalid) -> {error, invalid_input};
 auth_add1(U, K) -> gen_statem:call(?SERVER, {auth, {add, U, K}}).
 
--spec auth_del(user(), public_user_key() | base64:base64_string()) ->
+-spec auth_del(user(), public_user_key() | base64_string()) ->
     ok | {error, term()}.
-auth_del(User = [_ | _], PublicUserKey) ->
+auth_del([_ | _] = User, PublicUserKey) ->
     auth_del1(User, dec_pk_input(PublicUserKey));
 auth_del(_, _) ->
     {error, invalid_input}.
@@ -65,7 +67,7 @@ auth_del1(_, invalid) -> {error, invalid_input};
 auth_del1(U, K) -> gen_statem:call(?SERVER, {auth, {del, U, K}}).
 
 -spec auth_del(user()) -> ok | {error, term()}.
-auth_del(User = [_ | _]) -> gen_statem:call(?SERVER, {auth, {del, User}});
+auth_del([_ | _] = User) -> gen_statem:call(?SERVER, {auth, {del, User}});
 auth_del(_) -> {error, invalid_input}.
 
 -spec auth_dump() -> {ok, [{user(), public_user_key()}]} | {error, term()}.
@@ -241,9 +243,9 @@ load_or_generate_sshd_key({error, enoent}, HostKeyFile) ->
     ?LOG_NOTICE(#{?SERVER => "SSH host key not found: generate"}),
     ok = filelib:ensure_dir(HostKeyFile),
     Key = public_key:generate_key({'namedCurve', ?'id-Ed25519'}),
-    {ok, DERKey} = 'OTP-PUB-KEY':encode('ECPrivateKey', Key),
-    BIN = public_key:pem_encode([{'ECPrivateKey', iolist_to_binary(DERKey), not_encrypted}]),
-    ok = file:write_file(HostKeyFile, BIN),
+    DERKey = public_key:der_encode('ECPrivateKey', Key),
+    Bin = public_key:pem_encode([{'ECPrivateKey', iolist_to_binary(DERKey), not_encrypted}]),
+    ok = file:write_file(HostKeyFile, Bin),
     Key;
 load_or_generate_sshd_key({ok, Bin}, _HostKeyFile) ->
     [K | _] = lists:filter(
@@ -263,7 +265,7 @@ dec_pk_input({#'ECPoint'{}, {'namedCurve', C}} = Key) when
     C == ?'id-Ed25519'; C == ?secp256r1; C == ?secp384r1; C == ?secp521r1
 ->
     Key;
-dec_pk_input(B64Key = [_ | _]) ->
+dec_pk_input([_ | _] = B64Key) ->
     dec_b64_key(list_to_binary(B64Key));
 dec_pk_input(B64Key) when is_binary(B64Key) -> dec_b64_key(B64Key);
 dec_pk_input(_) ->
